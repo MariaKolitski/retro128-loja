@@ -35,6 +35,40 @@ jobs:
         with:
           ref: ${{ inputs.versao || github.sha }}
 
+      - name: Migrar capas para assets/capas
+        run: |
+          mkdir -p assets/capas
+          cp -n img/capas/*.svg assets/capas/
+
+      - name: Validar capas citadas no catálogo
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const root = process.cwd();
+          const config = JSON.parse(fs.readFileSync('config/app-config.json', 'utf8'));
+          const catalog = JSON.parse(fs.readFileSync(config.catalogoUrl, 'utf8'));
+          if (!Array.isArray(catalog.jogos) || catalog.jogos.length === 0) {
+            throw new Error('O catálogo não contém jogos para validar.');
+          }
+          const pasta = path.resolve(root, config.pastaCapas);
+          const pastaRelativa = path.relative(root, pasta);
+          if (pastaRelativa.startsWith('..') || path.isAbsolute(pastaRelativa)) {
+            throw new Error('A pasta de capas precisa estar dentro do projeto.');
+          }
+          const ausentes = catalog.jogos.filter((jogo) => {
+            const arquivo = path.resolve(pasta, jogo.capa);
+            const relativo = path.relative(pasta, arquivo);
+            return relativo.startsWith('..') || path.isAbsolute(relativo) || !fs.existsSync(arquivo);
+          });
+          if (ausentes.length) {
+            console.error('Capas ausentes ou fora da pasta configurada:');
+            ausentes.forEach((jogo) => console.error(`- ${jogo.id}: ${jogo.capa}`));
+            process.exit(1);
+          }
+          console.log(`${catalog.jogos.length} capas validadas em ${pastaRelativa}/`);
+          NODE
+
       - name: Carimbar a versão publicada (build-info.json)
         env:
           REF_PUBLICADA: ${{ inputs.versao || github.ref_name }}
